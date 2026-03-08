@@ -30,8 +30,12 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files — NEVER commit .env (it contains API keys)
+.env
 .env*.local
+
+# Claude Code internal state (not project config)
+.claude/settings.local.json
 
 # typescript
 *.tsbuildinfo

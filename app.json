@@ -1,20 +1,23 @@
 {
   "expo": {
-    "name": "medicine-tracker-init",
-    "slug": "medicine-tracker-init",
+    "name": "Medicine Tracker",
+    "slug": "medicine-tracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "medicine-tracker",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.medicinetracker.app"
     },
     "android": {
+      "package": "com.medicinetracker.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -24,7 +27,33 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#3B82F6"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Medicine Tracker to access your camera to scan prescription labels."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Medicine Tracker to access your photos to import prescription labels."
+        }
+      ],
+      "expo-web-browser"
+    ]
   }
 }

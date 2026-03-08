@@ -1,6 +1,21 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
-  }
+    "strict": true,
+    // Allows importing from src/ as "@/components/..." instead of "../../components/..."
+    // e.g. import { DoseCard } from "@/components/DoseCard"
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    // NativeWind type definitions — enables className prop on React Native components
+    ".expo/types/**/*.d.ts",
+    "expo-env.d.ts",
+    // Tells TypeScript that View/Text/etc. accept a "className" prop from NativeWind
+    "nativewind-env.d.ts"
+  ]
 }

@@ -1,9 +1,18 @@
 // src/db/schema.ts — TypeScript type definitions for every database table.
-// These interfaces describe exactly what a row from each table looks like
-// after being read from SQLite. Having these types means TypeScript will
-// warn you if you try to access a field that doesn't exist.
+//
+// Think of an "interface" like a label on a jar in the kitchen.
+// The label says "Cookies — chocolate chip, round, qty: 12". You haven't
+// opened the jar yet, but the label tells you exactly what's inside.
+//
+// Each interface below is a label for one table in our database.
+// It describes every field (column) a row can have, what type it is
+// (text, number, etc.), and whether it can be empty (null).
+// TypeScript reads these labels and warns you if your code tries to use
+// a field that doesn't exist — like reaching into the cookie jar and
+// expecting to find pizza. That would be a bug!
 
 // Represents one row from the `medicines` table.
+// Imagine a medicine bottle with a label — this interface is what's on that label.
 // Example: { id: "abc-123", userId: "auth0|xyz", name: "Lisinopril", dosage: "10mg", ... }
 export interface Medicine {
   id: string;
@@ -17,8 +26,10 @@ export interface Medicine {
   updated_at: string;
 }
 
-// Input type for adding a new medicine — only the fields the user provides.
-// `id`, `created_at`, `updated_at`, `is_active` are set automatically.
+// Input type for adding a new medicine — only the fields the user types in.
+// It's like a form at the doctor's office: you fill in the medicine name and
+// dosage, but the receptionist adds the date and file number automatically.
+// `id`, `created_at`, `updated_at`, `is_active` are set automatically by the app.
 export interface AddMedicineInput {
   name: string;
   dosage: string;
@@ -27,7 +38,9 @@ export interface AddMedicineInput {
 }
 
 // Input type for updating an existing medicine — all fields are optional
-// because you might only update one field at a time.
+// because you might only change one thing at a time.
+// Like erasing one line on your homework and rewriting it — you don't
+// redo the whole page, just the part that changed.
 export interface UpdateMedicineInput {
   name?: string;
   dosage?: string;
@@ -36,7 +49,8 @@ export interface UpdateMedicineInput {
 }
 
 // Represents one row from the `schedules` table.
-// Stores when a medicine should be taken (times, frequency, days).
+// Think of this like an alarm clock setting — it says WHEN to take a medicine.
+// "Take Aspirin every day at 8:00 AM and 8:00 PM" would be one schedule row.
 export interface Schedule {
   id: string;
   medicine_id: string;
@@ -55,7 +69,9 @@ export interface Schedule {
 }
 
 // Represents one row from the `intake_logs` table.
-// Every dose taken OR skipped creates a log entry.
+// This is like a diary entry: "Monday 8 AM — took my Aspirin" or
+// "Monday 8 PM — skipped". Every single dose creates one diary entry,
+// whether you took it or not.
 export interface IntakeLog {
   id: string;
   medicine_id: string;
@@ -68,7 +84,9 @@ export interface IntakeLog {
 }
 
 // Represents one row from the `inventory` table.
-// Tracks how many pills/doses are remaining for a medicine.
+// Imagine counting how many gummy vitamins are left in the bottle.
+// This table keeps that count and warns you when you're running low
+// (like when there are only 5 left and you need to buy more).
 export interface Inventory {
   id: string;
   medicine_id: string;
@@ -81,8 +99,10 @@ export interface Inventory {
 }
 
 // Represents one row from the `notification_log` table.
-// We store expo-notifications IDs so we can cancel them later
-// (e.g., when a dose is marked as taken).
+// When the app sets a phone reminder (like "Take Aspirin at 8 PM!"),
+// it gets a ticket number back. We save that ticket number here so
+// we can cancel the reminder later — like telling the alarm "never mind,
+// I already took it!" without that ticket number we couldn't turn it off.
 export interface NotificationLog {
   id: string;
   user_id: string;

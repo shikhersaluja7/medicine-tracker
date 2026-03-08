@@ -5,6 +5,13 @@
 // some external data or behaviour. This hook connects any screen to the
 // medicines table in SQLite, handling loading states and re-fetching for you.
 //
+// Analogy: Imagine a librarian at a school library.
+// You (the screen) walk up and say "I need all my books." The librarian
+// (this hook) goes to the shelves (SQLite), finds your books, and hands
+// them to you. You never go into the back room yourself.
+// If the library reorganises its shelves, the librarian adjusts — you still
+// just say "I need my books" and everything works.
+//
 // Why a hook instead of calling the service directly in the screen?
 // Screens shouldn't know about SQLite details — they should just ask for data.
 // The hook acts as a middleman: it fetches from SQLite, tracks loading state,
@@ -41,6 +48,13 @@ export function useMedicines(): UseMedicinesResult {
   const [isLoading, setIsLoading] = useState(true);
 
   // fetch: wrapped in useCallback so its reference stays stable.
+  //
+  // Analogy: Imagine you write your friend's phone number on a sticky note.
+  // useCallback is like keeping that SAME sticky note instead of copying it
+  // onto a new piece of paper every single second. React checks "is the note
+  // different?" — if you keep rewriting it, React thinks it changed and
+  // re-runs things unnecessarily, causing an infinite loop.
+  //
   // Without useCallback, a new function reference is created on every render,
   // which would cause the useEffect below to run in an infinite loop.
   const fetch = useCallback(() => {
@@ -62,8 +76,10 @@ export function useMedicines(): UseMedicinesResult {
     setIsLoading(false);
   }, [user]); // re-create fetch only when the logged-in user changes
 
+  // useEffect = "do this thing when something changes."
   // Run fetch once when the hook is first used, and again whenever fetch changes
   // (i.e., when the user changes — e.g., after logout + login as a different account).
+  // It's like a doorbell — it rings (runs) when someone new arrives (fetch changes).
   useEffect(() => {
     fetch();
   }, [fetch]);

@@ -1,0 +1,201 @@
+%% ============================================================
+%% Medicine Tracker — Architecture Diagrams
+%% Source of truth for all Mermaid diagrams in architecture.md
+%% ============================================================
+
+
+%% -----------------------------------------------------------
+%% 1. SYSTEM CONTEXT (C4 Level 1)
+%% Shows the app's external boundaries and integrations.
+%% -----------------------------------------------------------
+%% Render separately — each diagram starts with its own keyword.
+
+%% graph TD
+%%   User([fa:fa-user User / Family Member])
+%%   App[Medicine Tracker Mobile App<br/>Expo + React Native]
+%%   Auth0[Auth0<br/>Identity Provider<br/>OIDC + PKCE]
+%%   Claude[Anthropic Claude API<br/>claude-haiku-4-5<br/>Prescription OCR]
+%%   SQLite[(SQLite<br/>On-Device Database)]
+%%   SecureStore[(SecureStore<br/>Encrypted Keychain)]
+%%   Notif[expo-notifications<br/>Local Push Reminders]
+%%
+%%   User -->|uses| App
+%%   App -->|authenticates via| Auth0
+%%   App -->|sends prescription image| Claude
+%%   App -->|reads/writes data| SQLite
+%%   App -->|stores tokens| SecureStore
+%%   App -->|schedules reminders| Notif
+
+
+%% -----------------------------------------------------------
+%% 2. LAYERED ARCHITECTURE
+%% Shows the four-layer dependency chain.
+%% -----------------------------------------------------------
+
+%% graph TB
+%%   subgraph Screen Layer
+%%     S1[app/_layout.tsx]
+%%     S2[app/index.tsx]
+%%     S3[app/(auth)/sign-in.tsx]
+%%     S4[app/(tabs)/dashboard.tsx]
+%%     S5[app/(tabs)/medicines.tsx]
+%%     S6[app/(tabs)/settings.tsx]
+%%     S7[app/medicine/new.tsx]
+%%     S8[app/medicine/id.tsx]
+%%     S9[app/medicine/id-edit.tsx]
+%%   end
+%%
+%%   subgraph Hook Layer
+%%     H1[useMedicines]
+%%     H2[useSchedule — planned]
+%%     H3[useInventory — planned]
+%%   end
+%%
+%%   subgraph Service Layer
+%%     SV1[medicine.service]
+%%     SV2[schedule.service — planned]
+%%     SV3[intake.service — planned]
+%%     SV4[inventory.service — planned]
+%%     SV5[notification.service — planned]
+%%     SV6[ocr.service — planned]
+%%   end
+%%
+%%   subgraph Database Layer
+%%     DB1[(client.ts — SQLite connection)]
+%%     DB2[schema.ts — TypeScript interfaces]
+%%     DB3[migrations.ts — DDL statements]
+%%   end
+%%
+%%   Screen Layer --> Hook Layer
+%%   Hook Layer --> Service Layer
+%%   Service Layer --> Database Layer
+
+
+%% -----------------------------------------------------------
+%% 3. ENTITY-RELATIONSHIP DIAGRAM
+%% All five database tables with relationships.
+%% -----------------------------------------------------------
+
+%% erDiagram
+%%   medicines {
+%%     TEXT id PK
+%%     TEXT user_id
+%%     TEXT name
+%%     TEXT dosage
+%%     TEXT instructions
+%%     TEXT doctor
+%%     INTEGER is_active
+%%     TEXT created_at
+%%     TEXT updated_at
+%%   }
+%%
+%%   schedules {
+%%     TEXT id PK
+%%     TEXT medicine_id FK
+%%     TEXT user_id
+%%     TEXT frequency
+%%     TEXT times_of_day
+%%     TEXT days_of_week
+%%     INTEGER is_active
+%%     TEXT created_at
+%%     TEXT updated_at
+%%   }
+%%
+%%   intake_logs {
+%%     TEXT id PK
+%%     TEXT medicine_id FK
+%%     TEXT user_id
+%%     TEXT scheduled_at
+%%     TEXT taken_at
+%%     TEXT status
+%%     TEXT notes
+%%     TEXT created_at
+%%   }
+%%
+%%   inventory {
+%%     TEXT id PK
+%%     TEXT medicine_id FK
+%%     TEXT user_id
+%%     REAL quantity_on_hand
+%%     TEXT unit
+%%     REAL low_stock_threshold
+%%     TEXT last_refill_date
+%%     TEXT updated_at
+%%   }
+%%
+%%   notification_log {
+%%     TEXT id PK
+%%     TEXT user_id
+%%     TEXT medicine_id
+%%     TEXT notification_id
+%%     TEXT type
+%%     TEXT scheduled_for
+%%     TEXT created_at
+%%   }
+%%
+%%   medicines ||--o{ schedules : "has many"
+%%   medicines ||--o{ intake_logs : "has many"
+%%   medicines ||--o| inventory : "has one"
+%%   medicines ||--o{ notification_log : "has many"
+
+
+%% -----------------------------------------------------------
+%% 4. AUTH FLOW SEQUENCE
+%% Full OIDC + PKCE login flow from app open to dashboard.
+%% -----------------------------------------------------------
+
+%% sequenceDiagram
+%%   actor User
+%%   participant App as Medicine Tracker
+%%   participant SS as SecureStore
+%%   participant Auth0 as Auth0 (OIDC)
+%%
+%%   Note over App: App Launch
+%%   App->>SS: Check for stored session
+%%   alt Session found
+%%     SS-->>App: Return stored AuthUser JSON
+%%     App->>App: setUser(restored) → navigate to dashboard
+%%   else No session
+%%     App->>App: Show sign-in screen
+%%     User->>App: Tap "Sign In"
+%%     App->>App: Generate PKCE code_verifier + code_challenge
+%%     App->>Auth0: Open Universal Login (browser)<br/>with code_challenge
+%%     Auth0->>User: Show login form
+%%     User->>Auth0: Enter credentials
+%%     Auth0-->>App: Redirect with authorization code
+%%     App->>Auth0: Exchange code + code_verifier for tokens
+%%     Auth0-->>App: Return ID token + access token
+%%     App->>App: Decode JWT payload → extract sub, email, name
+%%     App->>SS: Store AuthUser JSON + access token
+%%     App->>App: setUser(decoded) → navigate to dashboard
+%%   end
+
+
+%% -----------------------------------------------------------
+%% 5. NAVIGATION ROUTE MAP
+%% All screens and transitions.
+%% -----------------------------------------------------------
+
+%% graph TD
+%%   ROOT["/ (index.tsx)<br/>Smart Redirect"]
+%%   SIGNIN["/(auth)/sign-in<br/>Auth0 Login"]
+%%   DASH["/(tabs)/dashboard<br/>Today View"]
+%%   MEDS["/(tabs)/medicines<br/>Medicine List"]
+%%   SETTINGS["/(tabs)/settings<br/>Account & Logout"]
+%%   NEW["/medicine/new<br/>Add Medicine Form"]
+%%   DETAIL["/medicine/[id]<br/>Medicine Detail"]
+%%   EDIT["/medicine/[id]-edit<br/>Edit Medicine"]
+%%
+%%   ROOT -->|authenticated| DASH
+%%   ROOT -->|not authenticated| SIGNIN
+%%   SIGNIN -->|login success| DASH
+%%   DASH <-->|tab switch| MEDS
+%%   DASH <-->|tab switch| SETTINGS
+%%   MEDS <-->|tab switch| SETTINGS
+%%   MEDS -->|tap +| NEW
+%%   MEDS -->|tap card| DETAIL
+%%   NEW -->|save / back| MEDS
+%%   DETAIL -->|tap edit| EDIT
+%%   DETAIL -->|archive / back| MEDS
+%%   EDIT -->|save / back| DETAIL
+%%   SETTINGS -->|logout| SIGNIN

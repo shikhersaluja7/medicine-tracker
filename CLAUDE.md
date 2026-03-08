@@ -112,10 +112,43 @@ Hooks handle loading states and re-fetching after mutations.
 
 ## Code Conventions
 
-- **Comments**: Add inline comments on any non-obvious line. Include a concrete example.
+- **Commenting Style Guide** — Every comment should be understandable by a non-developer aged 10+.
+
+  **Audience & tone:** Professional but warm. Use vivid real-world analogies.
+  A reader who has never written code should still understand what the file does and why each line matters.
+
+  **File-level comment** (required on every `.ts` / `.tsx` file):
+  - Line 1: File path + one-line purpose.
+  - Lines 2+: A real-world analogy explaining the file's role.
+
+  **Inline comments** (required on any non-obvious line):
+  - Explain WHAT the line does + WHY + a concrete example value.
+
+  **Block comments before complex logic:**
+  - Lead with an analogy, then give the technical explanation.
+
+  **Test files:**
+  - Explain testing concepts with analogies — stunt double for mocks,
+    science experiment for Arrange-Act-Assert, whiteboard wiping for `beforeEach`.
+
+  **Full example:**
   ```ts
-  // Parse Auth0 sub from JWT payload — e.g., sub = "auth0|abc123xyz"
-  const userId = session.user.sub;
+  // src/services/example.service.ts — Handles all database operations for X.
+  //
+  // Think of this like a waiter at a restaurant. You (the screen) are the
+  // customer. The kitchen (database) is in the back. You never walk into
+  // the kitchen yourself — you tell the waiter what you want.
+
+  // getItems returns all active items for a user, sorted by name.
+  // Like asking the librarian for all your books — she only gives you YOURS.
+  export function getItems(db: SQLiteDatabase, userId: string): Item[] {
+    // getAllSync runs the SQL query and returns all matching rows immediately.
+    // The ? placeholder prevents SQL injection — like a locked box for user input.
+    return db.getAllSync<Item>(
+      `SELECT * FROM items WHERE user_id = ? AND is_active = 1 ORDER BY name ASC`,
+      userId // e.g., "auth0|abc123" — the logged-in user's unique ID
+    );
+  }
   ```
 - **Before editing**: Summarize what will change in plain English, then wait for approval.
 - **One phase at a time**: Complete and verify each phase before starting the next.
@@ -147,3 +180,19 @@ Custom commands available in Claude Code sessions:
 - `/reset-db` — drop all tables and re-run migrations (dev only)
 - `/test-notification` — fire a test notification in 5 seconds
 - `/check-schema` — show current SQLite schema and row counts
+- `/docs-sync` — scan codebase, diff against living docs, and update `docs/` to match
+
+## Living Documentation
+
+Docs in `docs/` are kept in sync with the codebase automatically.
+Claude follows the docs-sync skill (`.claude/skills/docs-sync.skill.md`)
+to detect when documentation needs updating and applies changes without
+being asked. The skill can also be triggered manually with `/docs-sync`.
+
+| Document | Update when... |
+|----------|---------------|
+| `docs/architecture.md` | New files, layers, routes, tables, services, hooks, security changes, or tech debt resolved |
+| `docs/spec.md` | Feature status changes (planned → done), acceptance criteria checked off, new features, risk register changes |
+| `docs/architecture-diagram.mmd` | New tables, external integrations, screens, or routes |
+
+The Document Control version table in each doc must be updated with the change date and description.

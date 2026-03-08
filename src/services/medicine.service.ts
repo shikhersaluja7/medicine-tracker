@@ -1,5 +1,14 @@
 // src/services/medicine.service.ts — All database operations for medicines.
 //
+// What is a "service"?
+// Think of a restaurant. You (the screen) are a customer sitting at a table.
+// The kitchen (SQLite database) is in the back. You never walk into the
+// kitchen yourself — you tell the waiter (this service) what you want, and
+// the waiter talks to the kitchen for you.
+//   Customer says: "I'd like to add Aspirin."
+//   Waiter goes to the kitchen: INSERT INTO medicines ...
+//   Waiter comes back: "Here's your saved Aspirin record!"
+//
 // Rule: Never query SQLite directly from a component or screen.
 //       Always go through a service function. This keeps the UI code clean
 //       and makes it easy to test the database logic in isolation.
@@ -8,6 +17,7 @@
 // - db: the SQLite database connection (from src/db/client.ts)
 // - userId: the Auth0 sub of the logged-in user (e.g., "auth0|abc123")
 //   This ensures one user can never read or modify another user's data.
+//   Like a school locker — you can only open YOUR locker with YOUR code.
 
 import type { SQLiteDatabase } from "expo-sqlite";
 import type { AddMedicineInput, Medicine, UpdateMedicineInput } from "@/db/schema";
@@ -52,6 +62,12 @@ export function addMedicine(
   // runSync executes an INSERT/UPDATE/DELETE statement.
   // The ? placeholders are replaced by the values in order — this prevents
   // SQL injection attacks (never put user input directly into SQL strings).
+  //
+  // What is SQL injection? Imagine a sign-in sheet where you write your name.
+  // A sneaky person writes: "Bob; now delete everyone's data".
+  // If the system just pastes their text in, it runs the delete command!
+  // The ? placeholder is like a locked box — whatever the user types goes
+  // INSIDE the box as plain text, so it can never be treated as a command.
   db.runSync(
     `INSERT INTO medicines
        (id, user_id, name, dosage, instructions, doctor, is_active, created_at, updated_at)
@@ -141,6 +157,12 @@ export function updateMedicine(
   updates: UpdateMedicineInput
 ): void {
   // Build the SET clause dynamically based on which fields were provided.
+  //
+  // Analogy: Imagine you have a form with 4 blanks (name, dosage, instructions, doctor).
+  // If you only want to change the dosage, you don't erase the whole form and redo it —
+  // you just erase the dosage line and write the new value. That's what this code does:
+  // it figures out which blanks you want to change and only updates those.
+  //
   // e.g., if only dosage and instructions are passed, generates:
   //   SET dosage = ?, instructions = ?, updated_at = ?
   const fields: string[] = [];
@@ -185,6 +207,8 @@ export function updateMedicine(
 // archiveMedicine
 // ─────────────────────────────────────────────
 // "Soft deletes" a medicine by setting is_active = 0.
+// Instead of throwing away a notebook, you put it in a drawer. It's still
+// there if you ever need to look at old notes, but it's not on your desk anymore.
 // The row is kept in the database so dose history and stats are preserved.
 // The medicine will no longer appear in getMedicines() results.
 //

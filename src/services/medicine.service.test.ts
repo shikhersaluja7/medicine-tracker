@@ -1,15 +1,24 @@
 // src/services/medicine.service.test.ts — Unit tests for medicine.service.ts
 //
 // What are unit tests?
-// Unit tests check that individual functions work correctly in isolation.
-// We don't run these on a phone — we run them in Node.js using mocked
-// (fake) versions of phone APIs like expo-sqlite.
+// Imagine you're building a LEGO spaceship. Before you attach the wings,
+// you test each wing separately — does it snap on? Is it the right size?
+// That's a unit test: checking ONE small piece works before using it in
+// the whole ship. If a wing is broken, you find out here — not after
+// the whole spaceship falls apart.
+//
+// We don't run these on a phone — we run them on your computer using
+// mocked (fake) versions of phone features like the SQLite database.
 //
 // How mocking works:
-// expo-sqlite can't run in Node.js (it needs native phone code).
-// So we replace it with a fake version that records what was called
-// and returns values we control. The service functions don't know
-// they're talking to a fake — they just call the same API.
+// Think of a movie stunt double. The real actor (expo-sqlite) can't
+// do dangerous stunts (run on your computer without a phone). So we
+// hire a stunt double (a mock) that looks the same and follows the
+// same script. The director (our service code) yells "Action!" and
+// the stunt double performs — the service doesn't know it's not the
+// real actor. After the scene, we can check: "Did the stunt double
+// do a backflip?" — that's how we verify our code called the right
+// database functions.
 //
 // Run all tests:    npm run test
 // Run this file:    npx vitest run src/services/medicine.service.test.ts
@@ -27,12 +36,17 @@ import type { Medicine } from "@/db/schema";
 // ─── Mock expo-sqlite ────────────────────────────────────────────────────────
 // Replace the real expo-sqlite with a fake that does nothing by default.
 // Each test will then configure the fake to return specific test data.
+// It's like replacing a real vending machine with a cardboard one that
+// gives back whatever snack you put behind the slot before the test.
 vi.mock("expo-sqlite", () => ({
   openDatabaseSync: vi.fn(() => mockDb),
 }));
 
 // A fake SQLiteDatabase object with mock functions.
-// vi.fn() creates a function that records every call made to it.
+// vi.fn() creates a spy function — like a notebook that writes down every
+// time someone calls it, what they said, and what it replied.
+// Later, we read the notebook: "Were you called 2 times? Was the first
+// thing they said 'INSERT INTO medicines'?" That's how we check our code.
 const mockDb = {
   // runSync: used for INSERT, UPDATE, DELETE
   runSync: vi.fn(),
@@ -58,6 +72,9 @@ const fakeMedicine: Medicine = {
 };
 
 // ─── Test setup ──────────────────────────────────────────────────────────────
+// beforeEach = "do this cleanup step BEFORE every single test."
+// Like wiping the whiteboard clean between math problems — if you don't,
+// leftover numbers from problem 1 might confuse you in problem 2.
 beforeEach(() => {
   // Reset all mocks before each test so tests don't interfere with each other.
   // Without this, a mock returning "Lisinopril" in test 1 would still return
@@ -67,6 +84,11 @@ beforeEach(() => {
 
 // ─── addMedicine ─────────────────────────────────────────────────────────────
 describe("addMedicine", () => {
+  // Each test follows the "Arrange → Act → Assert" pattern.
+  // Think of it like a science experiment:
+  //   Arrange = set up your materials (beakers, chemicals)
+  //   Act     = do the experiment (mix them together)
+  //   Assert  = check the result (did it turn blue?)
   it("inserts a row and returns the saved medicine", () => {
     // Arrange: make getFirstSync (the read-back after INSERT) return our fake medicine
     mockDb.getFirstSync.mockReturnValue(fakeMedicine);
@@ -142,6 +164,8 @@ describe("getMedicines", () => {
     expect(result[1].name).toBe("Lisinopril");
   });
 
+  // This test makes sure we're checking IDs — like making sure the librarian
+  // only gives YOU your library books, not someone else's.
   it("queries with the correct userId to prevent data leakage", () => {
     mockDb.getAllSync.mockReturnValue([]);
 
@@ -216,6 +240,7 @@ describe("updateMedicine", () => {
     expect(sql).toContain("updated_at = ?");
   });
 
+  // If you hand in a blank edit form, the waiter shouldn't go to the kitchen.
   it("does nothing when no fields are provided", () => {
     // Calling with an empty updates object should not run any SQL
     updateMedicine(mockDb as any, "test-id-abc", "auth0|user123", {});
@@ -234,6 +259,7 @@ describe("updateMedicine", () => {
 
 // ─── archiveMedicine ─────────────────────────────────────────────────────────
 describe("archiveMedicine", () => {
+  // Archiving = putting in a drawer, not throwing away. is_active goes from 1 → 0.
   it("sets is_active to 0 (soft delete)", () => {
     archiveMedicine(mockDb as any, "test-id-abc", "auth0|user123");
 

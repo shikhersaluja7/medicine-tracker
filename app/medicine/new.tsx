@@ -1,18 +1,17 @@
 // app/medicine/new.tsx — The "Add Medicine" form screen.
 //
-// This screen lets the user manually type in the details of a new medicine.
-// Phase 5 will add a "Scan Label" button here that uses the camera + AI OCR
-// to pre-fill these fields from a photo of the prescription label.
+// This screen lets the user add a new medicine two ways:
+//   1. Manual entry — type in the name, dosage, and other details by hand.
+//   2. Scan a label — take a photo or pick one from the library, and the AI
+//      (Claude) reads the prescription label and fills in the form for you.
+//
+// Either way, the user always reviews the fields before tapping Save.
+// The scan feature NEVER auto-saves — it only pre-fills the form.
 //
 // When the user taps "Save":
-//   1. We validate that required fields are filled in
-//   2. We call addMedicine() from the service layer to INSERT into SQLite
-//   3. We navigate back to the medicines list with router.back()
-//
-// Why router.back() instead of router.push('/medicines')?
-// router.back() pops the current screen off the stack and returns to the previous
-// one — it's the correct way to "finish" a form screen.
-// router.push() would ADD a new medicines screen on top, creating duplicates.
+//   1. We validate that required fields are filled in.
+//   2. We call addMedicine() from the service layer to INSERT into SQLite.
+//   3. We navigate back to the medicines list with router.back().
 
 import {
   View,
@@ -23,11 +22,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
 import { useState } from "react";
+import * as ImagePicker from "expo-image-picker";
 import { db } from "@/db/client";
 import { addMedicine } from "@/services/medicine.service";
+import {
+  scanPrescription,
+  NetworkError,
+  APIError,
+  ParseError,
+} from "@/services/ocr.service";
 import { useAuth } from "@/auth/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -35,7 +42,7 @@ export default function NewMedicineScreen() {
   const { user } = useAuth();
 
   // Form field state — one useState per field so each can be updated independently.
-  // These start as empty strings and are filled as the user types.
+  // These start empty and are filled as the user types, or pre-filled by OCR.
   const [name, setName] = useState("");
   const [dosage, setDosage] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -44,6 +51,10 @@ export default function NewMedicineScreen() {
   // isSaving: prevents double-saves if the user taps Save twice quickly.
   const [isSaving, setIsSaving] = useState(false);
 
+  // isScanning: true while we are waiting for the Claude API to respond.
+  // A full-screen overlay is shown so the user knows the app is working.
+  const [isScanning, setIsScanning] = useState(false);
+
   // handleSave: validates the form and writes to the database.
   function handleSave() {
     // Trim removes spaces from the start and end.
@@ -51,8 +62,6 @@ export default function NewMedicineScreen() {
     const trimmedName = name.trim();
     const trimmedDosage = dosage.trim();
 
-    // Simple validation — name and dosage are required.
-    // We don't need a complex validation library for two required fields.
     if (!trimmedName) {
       Alert.alert("Missing Field", "Please enter the medicine name.");
       return;
@@ -73,13 +82,10 @@ export default function NewMedicineScreen() {
         name: trimmedName,
         dosage: trimmedDosage,
         // Use undefined (not empty string) for optional fields that were left blank.
-        // The service converts undefined → null for SQLite storage.
         instructions: instructions.trim() || undefined,
         doctor: doctor.trim() || undefined,
       });
 
-      // Navigate back to the medicines list after a successful save.
-      // The list will show the new medicine on its next render / refetch.
       router.back();
     } catch (error) {
       Alert.alert("Save Failed", "Something went wrong. Please try again.");
@@ -87,11 +93,140 @@ export default function NewMedicineScreen() {
     }
   }
 
+  // handleScan: asks the user whether to use the camera or photo library,
+  // then kicks off the OCR pipeline.
+  //
+  // Think of this like handing a prescription to a pharmacist who types it
+  // into the computer for you — you still review and confirm before anything is saved.
+  async function handleScan() {
+    Alert.alert(
+      "Scan Prescription Label",
+      "Choose how to get the photo",
+      [
+        {
+          text: "Take Photo",
+          onPress: () => pickAndScan("camera"),
+        },
+        {
+          text: "Choose from Library",
+          onPress: () => pickAndScan("library"),
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ]
+    );
+  }
+
+  // pickAndScan: requests the necessary permission, opens the picker, converts
+  // the image to base64, and sends it to the Claude API for OCR extraction.
+  async function pickAndScan(source: "camera" | "library") {
+    // Request permission before accessing the camera or photo library.
+    // iOS requires this; Android requires it for the photo library.
+    // We explain WHY we need access so the user understands and accepts.
+    if (source === "camera") {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Camera Permission Needed",
+          "Please allow camera access in your device settings so you can photograph the prescription label."
+        );
+        return;
+      }
+    } else {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Photo Library Permission Needed",
+          "Please allow photo library access in your device settings so you can select a prescription photo."
+        );
+        return;
+      }
+    }
+
+    // Open the camera or photo library.
+    // base64: true — we need the image as a base64 string to send to the API.
+    //   Base64 is like translating a photo into a very long string of letters
+    //   and numbers so it can travel over the internet as plain text.
+    // quality: 0.7 — slightly compressed to reduce data size without losing readability.
+    // allowsEditing: true — lets the user crop the image to the label area.
+    const result =
+      source === "camera"
+        ? await ImagePicker.launchCameraAsync({
+            base64: true,
+            quality: 0.7,
+            allowsEditing: true,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            base64: true,
+            quality: 0.7,
+            allowsEditing: true,
+            mediaTypes: "images",
+          });
+
+    // The user tapped Cancel in the picker — nothing to do.
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+
+    if (!asset.base64) {
+      Alert.alert("Image Error", "Could not read the image. Please try again.");
+      return;
+    }
+
+    // Detect whether the image is PNG or JPEG from the file URI extension.
+    // Claude needs to know the format to decode the base64 correctly.
+    // e.g., "file:///var/mobile/photo.png" → "image/png"
+    const mimeType = asset.uri.toLowerCase().endsWith(".png")
+      ? ("image/png" as const)
+      : ("image/jpeg" as const);
+
+    // Show the scanning overlay and send the image to Claude.
+    setIsScanning(true);
+    try {
+      const extracted = await scanPrescription(asset.base64, mimeType);
+
+      // Pre-fill form fields with whatever Claude extracted.
+      // Only overwrite a field if Claude found something — we don't want to
+      // blank out text the user may have already typed in manually.
+      if (extracted.name) setName(extracted.name);
+      if (extracted.dosage) setDosage(extracted.dosage);
+      if (extracted.instructions) setInstructions(extracted.instructions);
+      if (extracted.doctor) setDoctor(extracted.doctor);
+    } catch (error) {
+      // Each error type gets a different, spec-defined user-facing message.
+      if (error instanceof NetworkError) {
+        Alert.alert(
+          "No Connection",
+          "Could not connect. Check your internet and try again."
+        );
+      } else if (error instanceof APIError) {
+        Alert.alert(
+          "Scan Failed",
+          "Could not read the label. Try a clearer photo or enter details manually."
+        );
+      } else if (error instanceof ParseError) {
+        Alert.alert(
+          "Label Not Found",
+          "Could not find medicine details in this image. Try a clearer photo or enter details manually."
+        );
+      } else {
+        Alert.alert(
+          "Scan Failed",
+          "Something went wrong. Please try again or enter details manually."
+        );
+      }
+    } finally {
+      // Always hide the scanning overlay, even if an error occurred.
+      setIsScanning(false);
+    }
+  }
+
   return (
     // KeyboardAvoidingView slides the form up when the keyboard appears,
-    // preventing the keyboard from covering the input fields.
-    // behavior="padding" adds padding at the bottom equal to the keyboard height.
-    // On Android the OS handles this automatically; on iOS we need this component.
+    // preventing it from covering the input fields the user is typing in.
     <KeyboardAvoidingView
       className="flex-1 bg-gray-50"
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -99,12 +234,10 @@ export default function NewMedicineScreen() {
 
       {/* ── Header ── */}
       <View className="flex-row items-center px-5 pt-14 pb-4 bg-white border-b border-gray-100">
-        {/* Back button — same effect as a swipe-back gesture */}
         <TouchableOpacity onPress={() => router.back()} className="mr-4 p-1">
           <Ionicons name="chevron-back" size={24} color="#374151" />
         </TouchableOpacity>
         <Text className="text-xl font-bold text-gray-900 flex-1">Add Medicine</Text>
-        {/* Save button in the header — common iOS pattern for forms */}
         <TouchableOpacity
           onPress={handleSave}
           disabled={isSaving}
@@ -114,19 +247,31 @@ export default function NewMedicineScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Form fields ── */}
+      {/* ── Form ── */}
       {/* ScrollView lets the form scroll if it's taller than the screen */}
       <ScrollView className="flex-1" keyboardShouldPersistTaps="handled">
         <View className="px-5 pt-6 pb-8 gap-5">
 
-          {/* Phase 5 preview: camera scan button (disabled for now) */}
-          <View className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex-row items-center gap-3">
+          {/* ── Scan Prescription Label button ── */}
+          {/* Tapping this starts the camera/library picker and OCR pipeline. */}
+          <TouchableOpacity
+            onPress={handleScan}
+            disabled={isScanning}
+            className={`bg-blue-50 border border-blue-200 rounded-2xl p-4 flex-row items-center gap-3 ${
+              isScanning ? "opacity-50" : ""
+            }`}
+          >
             <Ionicons name="camera-outline" size={22} color="#3B82F6" />
             <View className="flex-1">
-              <Text className="text-sm font-medium text-blue-700">Scan Prescription Label</Text>
-              <Text className="text-xs text-blue-500 mt-0.5">Coming in Phase 5 — AI will fill this form from a photo</Text>
+              <Text className="text-sm font-medium text-blue-700">
+                Scan Prescription Label
+              </Text>
+              <Text className="text-xs text-blue-500 mt-0.5">
+                AI reads the label and fills in the form for you
+              </Text>
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={16} color="#93C5FD" />
+          </TouchableOpacity>
 
           {/* ── Medicine Name (required) ── */}
           <FormField
@@ -178,6 +323,26 @@ export default function NewMedicineScreen() {
 
         </View>
       </ScrollView>
+
+      {/* ── Scanning overlay ── */}
+      {/* A semi-transparent dark sheet covers the whole screen while Claude is
+          processing the image. This prevents the user from tapping other buttons
+          mid-scan and makes it clear the app is busy working.
+          Like a "Please wait" sign on a door — don't come in just yet! */}
+      {isScanning && (
+        <View className="absolute inset-0 bg-black/60 items-center justify-center">
+          <View className="bg-white rounded-2xl px-8 py-6 items-center gap-3 mx-8">
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text className="text-gray-900 font-semibold text-base">
+              Scanning prescription...
+            </Text>
+            <Text className="text-gray-500 text-sm text-center">
+              AI is reading the label. This takes a few seconds.
+            </Text>
+          </View>
+        </View>
+      )}
+
     </KeyboardAvoidingView>
   );
 }
@@ -218,19 +383,16 @@ function FormField({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#D1D5DB" // Tailwind gray-300 — subtle placeholder colour
+        placeholderTextColor="#D1D5DB"
         multiline={multiline}
-        // numberOfLines only applies to Android for multiline inputs
         numberOfLines={multiline ? 3 : 1}
         className={`bg-white rounded-xl border border-gray-200 px-4 py-3 text-gray-900 text-base ${
           multiline ? "min-h-[80px]" : ""
         }`}
         // textAlignVertical="top" keeps the cursor at the top of multiline inputs on Android.
-        // Without this, Android centres the cursor vertically, which looks odd.
         textAlignVertical={multiline ? "top" : "center"}
       />
 
-      {/* Optional hint text below the input */}
       {hint && <Text className="text-xs text-gray-400 mt-1">{hint}</Text>}
     </View>
   );

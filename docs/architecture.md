@@ -5,6 +5,7 @@
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-03-08 | Principal Architect | Initial draft covering Phases 1–4 (scaffold, database, auth, medicine CRUD). Planned architecture for Phases 5–9. |
+| 2.0 | 2026-03-09 | Principal Architect | All 9 phases shipped. Updated executive summary, hook/service tables, file tree, tech debt register, and future evolution section to reflect current codebase state. |
 
 **Status:** Living document — updated as each phase is implemented.
 **Audience:** Engineers, architects, technical leads, and anyone beginning spec-driven development on this codebase.
@@ -16,9 +17,7 @@
 
 Medicine Tracker is a **mobile-first, offline-first** family medicine management app built with Expo SDK 55 and React Native. All user data is stored locally on-device via SQLite — there is no backend server and no cloud sync. Authentication is delegated to Auth0 via OIDC with PKCE. The app follows a strict four-layer architecture (**Screens → Hooks → Services → Database**) with a non-negotiable security invariant: every database query is scoped to the authenticated user's `user_id`.
 
-**Current state (v1.0-alpha):** Phases 1–4 are complete — project scaffold, SQLite database with full schema (5 tables), Auth0 authentication with session persistence, and medicine CRUD UI (add, view, edit, archive).
-
-**Planned:** Phase 5 (OCR prescription scanning via Claude API), Phase 6 (inventory tracking), Phase 7 (dosage schedules), Phase 8 (intake logging and adherence stats), Phase 9 (local push notifications).
+**Current state (v1.0):** All 9 phases are complete. The app ships with: project scaffold, SQLite database with full schema (5 tables), Auth0 OIDC authentication with session persistence, medicine CRUD UI, OCR prescription scanning via Claude API (claude-haiku-4-5), inventory tracking with low-stock alerts, dosage schedules (daily / twice-daily / weekly / as-needed / custom), intake logging with adherence statistics, and local push notifications for dose reminders and low-stock events.
 
 ---
 
@@ -106,15 +105,15 @@ graph TB
 |-------|------|---------|
 | `/` | `app/index.tsx` | Smart redirect — authenticated users → dashboard, others → sign-in |
 | `/(auth)/sign-in` | `app/(auth)/sign-in.tsx` | Auth0 login screen with branding |
-| `/(tabs)/dashboard` | `app/(tabs)/dashboard.tsx` | Today view — medicine count, placeholder cards for future phases |
-| `/(tabs)/medicines` | `app/(tabs)/medicines.tsx` | Medicine list with cards, pull-to-refresh, empty state |
-| `/(tabs)/settings` | `app/(tabs)/settings.tsx` | Account info, app version, sign-out button |
-| `/medicine/new` | `app/medicine/new.tsx` | Add medicine form (manual entry + OCR placeholder) |
-| `/medicine/[id]` | `app/medicine/[id].tsx` | Medicine detail view with edit and archive actions |
+| `/(tabs)/dashboard` | `app/(tabs)/dashboard.tsx` | Today view — dose tracking, adherence stats, low-stock alerts |
+| `/(tabs)/medicines` | `app/(tabs)/medicines.tsx` | Medicine list with inventory badges, pull-to-refresh, empty state |
+| `/(tabs)/settings` | `app/(tabs)/settings.tsx` | Account info, notification permission status, sign-out |
+| `/medicine/new` | `app/medicine/new.tsx` | Add medicine form — manual entry or OCR camera scan |
+| `/medicine/[id]` | `app/medicine/[id].tsx` | Medicine detail: inventory section, schedule section, adherence stats, edit/archive |
 | `/medicine/[id]-edit` | `app/medicine/[id]-edit.tsx` | Pre-filled edit form for existing medicine |
 
 **Layout files:**
-- `app/_layout.tsx` — Root layout: runs migrations synchronously at module load, wraps app in `<AuthProvider>`, sets up Stack navigator.
+- `app/_layout.tsx` — Root layout: runs migrations synchronously at module load, wraps app in `<AuthProvider>`, requests notification permission once on launch, sets up Stack navigator.
 - `app/(auth)/_layout.tsx` — Route group layout for unauthenticated screens.
 - `app/(tabs)/_layout.tsx` — Bottom tab bar with 3 tabs (Today, Medicines, Settings).
 
@@ -122,15 +121,15 @@ graph TB
 
 **Responsibility:** Bridge between screens and services. Manages loading state, data fetching, and provides a `refetch()` function for post-mutation refresh.
 
-**Convention:** Every hook returns `{ data, isLoading, refetch }`.
+**Convention:** Every hook returns `{ data, isLoading, refetch }` plus mutation helpers specific to the domain.
 
-| Hook | Status | Service Called |
-|------|--------|---------------|
-| `useMedicines` | Built | `getMedicines(db, userId)` |
-| `useSchedule` | Planned (Phase 7) | `getSchedules(db, userId, medicineId)` |
-| `useInventory` | Planned (Phase 6) | `getInventory(db, userId, medicineId)` |
-| `useIntakeLogs` | Planned (Phase 8) | `getTodaysDoses(db, userId)` |
-| `useAdherence` | Planned (Phase 8) | `getAdherenceStats(db, userId)` |
+| Hook | Status | Service(s) Called |
+|------|--------|------------------|
+| `useMedicines` | Built | `getMedicines`, `addMedicine`, `archiveMedicine` |
+| `useSchedule` | Built | `getSchedule`, `upsertSchedule`, `deactivateSchedule` |
+| `useInventory` | Built | `getInventory`, `upsertInventory`, `recordRefill` |
+
+> **Note:** Intake logging and adherence are called directly from `dashboard.tsx` (via `useFocusEffect`) rather than through dedicated hooks, because dose state changes on every Take/Skip interaction and needs immediate UI response.
 
 ### 4.3 Service Layer (`src/services/`)
 
@@ -138,15 +137,15 @@ graph TB
 
 **Signature convention:** Every function follows `fn(db: SQLiteDatabase, userId: string, ...args)`. The `userId` parameter is the Auth0 `sub` and is included in every SQL `WHERE` clause. This is the **primary security invariant** of the system.
 
-| Service | Status | Functions |
-|---------|--------|-----------|
+| Service | Status | Key Functions |
+|---------|--------|--------------|
 | `medicine.service.ts` | Built | `addMedicine`, `getMedicines`, `getMedicineById`, `updateMedicine`, `archiveMedicine` |
-| `medicine.service.test.ts` | Built | 15 unit tests covering all CRUD + security checks |
-| `ocr.service.ts` | Planned (Phase 5) | `scanPrescription(imageBase64)` → `AddMedicineInput` |
-| `inventory.service.ts` | Planned (Phase 6) | `getInventory`, `updateStock`, `recordRefill`, `getLowStockMedicines` |
-| `schedule.service.ts` | Planned (Phase 7) | `addSchedule`, `getSchedules`, `updateSchedule`, `deactivateSchedule` |
-| `intake.service.ts` | Planned (Phase 8) | `generatePendingDoses`, `markTaken`, `markSkipped`, `getAdherence` |
-| `notification.service.ts` | Planned (Phase 9) | `scheduleDoseReminder`, `cancelReminder`, `scheduleLowStockAlert` |
+| `medicine.service.test.ts` | Built | 15 unit tests covering all CRUD + user-scoping security |
+| `ocr.service.ts` | Built | `scanPrescription(imageBase64, mimeType)` → `AddMedicineInput`; error classes: `NetworkError`, `APIError`, `ParseError` |
+| `inventory.service.ts` | Built | `getInventory`, `getAllInventories`, `getLowStockInventories`, `upsertInventory`, `recordRefill` |
+| `schedule.service.ts` | Built | `getSchedule`, `upsertSchedule`, `deactivateSchedule`; frequency types: `daily`, `twice_daily`, `weekly`, `as_needed`, `custom` |
+| `intake.service.ts` | Built | `generateTodaysDoses`, `getTodaysDoses`, `markTaken`, `markSkipped`, `getAdherenceStats`, `getOverallAdherence` |
+| `notification.service.ts` | Built | `requestPermission`, `getPermissionStatus`, `scheduleDoseNotifications`, `cancelDoseNotification`, `cancelMedicineNotifications`, `checkAndNotifyLowStock`, `rescheduleAllNotifications` |
 
 ### 4.4 Database Layer (`src/db/`)
 
@@ -447,29 +446,33 @@ Read:   Screen → useHook() → service.getX(db, userId) → SQLite → return 
 Write:  Screen → service.addX(db, userId, input) → SQLite INSERT → call refetch() → re-read → re-render
 ```
 
-### 8.3 Known Stale-Data Limitation
+### 8.3 Stale-Data Handling
 
-Currently, when a medicine is added on the "Medicines" tab, the "Dashboard" tab's medicine count does not automatically update because each hook instance fetches independently. Mitigation: add `useFocusEffect` from `@react-navigation/native` to re-fetch data when a tab gains focus. Logged as tech debt.
+Each tab re-fetches all its data via `useFocusEffect` every time it becomes visible. This means switching from the Medicines tab to the Dashboard tab always shows the latest dose and inventory state. The pattern is: `useFocusEffect(refreshData)` where `refreshData` is a `useCallback`-stable function that reads from SQLite synchronously.
 
 ---
 
-## 9. API Integration — OCR (Phase 5, Planned)
+## 9. API Integration — OCR (Phase 5, Built)
 
 ### 9.1 Architecture
 
 ```
-Camera / ImagePicker
-  → base64 encode image
-  → ocr.service.ts → POST to Claude API (claude-haiku-4-5)
+Camera / ImagePicker (expo-image-picker)
+  → request camera or library permission
+  → capture image at quality 0.7, with base64 output
+  → ocr.service.ts → POST to Anthropic API (claude-haiku-4-5-20251001)
+     - system prompt instructs Claude to extract: name, dosage, instructions, doctor
+     - response parsed with /\{[\s\S]*\}/ regex to strip markdown fences
   → receive structured JSON: { name, dosage, instructions, doctor }
-  → pre-fill AddMedicineInput form fields
+  → pre-fill AddMedicineInput form fields (only if Claude found something)
   → user reviews and edits before saving
 ```
 
 **Key design decisions:**
-- OCR never auto-saves. The user always reviews extracted fields before committing.
-- The service returns an `AddMedicineInput` type so it plugs directly into the existing form.
+- OCR never auto-saves. The user always reviews extracted fields before confirming.
+- Three typed error classes — `NetworkError`, `APIError`, `ParseError` — map to distinct user-facing messages.
 - Image is sent as base64 in the API request body (no image upload endpoint needed).
+- Pre-fill is non-destructive: existing user-typed text is only overwritten if Claude found a non-empty value.
 
 ### 9.2 API Key Management
 
@@ -548,27 +551,28 @@ All variables live in `.env` (gitignored). No secrets in the repository.
 | Item | Severity | Description | Recommended Fix |
 |------|----------|-------------|-----------------|
 | Duplicated `FormField` component | Low | `new.tsx` and `[id]-edit.tsx` each define their own `FormField`. | Extract to `src/components/FormField.tsx`. |
-| Inconsistent data access pattern | Medium | `medicines.tsx` uses `useMedicines()` hook, but `new.tsx`, `[id].tsx`, `[id]-edit.tsx` import `db` directly and call services inline. | Create hooks for single-medicine operations or standardize direct service calls. |
-| `generateId()` not UUID | Low | Fine for single-device. Not suitable for multi-device sync. | Replace with `uuid` package or `crypto.randomUUID()` if sync is added. |
-| No `useFocusEffect` | Medium | Stale data across tabs after mutations. | Add `useFocusEffect` to re-fetch on tab focus. |
-| Auth guard only in `index.tsx` | Low | Deep links can bypass auth check. | Add auth check in `(tabs)/_layout.tsx`. |
-| Exposed Anthropic API key | High (production only) | Key bundled into app binary via `EXPO_PUBLIC_` prefix. | Route through backend proxy before production release. |
-| No error boundaries | Medium | Unhandled React errors crash the entire app. | Add `ErrorBoundary` component at root layout level. |
-| No analytics or crash reporting | Low | No visibility into production issues. | Add Sentry or similar before production release. |
+| Inconsistent data access pattern | Medium | `medicines.tsx` uses `useMedicines()` hook, but `new.tsx`, `[id].tsx`, `[id]-edit.tsx` import `db` directly. | Standardise: either always use hooks or always use direct service calls per screen. |
+| `generateId()` not UUID | Low | Fine for single-device. Not suitable for multi-device sync. | Replace with `uuid` package or `crypto.randomUUID()` if sync is ever added. |
+| Auth guard only in `index.tsx` | Low | Deep links (e.g., from a notification tap) can bypass the `index.tsx` check. | Add `useAuth()` redirect guard in `(tabs)/_layout.tsx`. |
+| Exposed Anthropic API key | High (production only) | Key bundled into app binary via `EXPO_PUBLIC_` prefix. | Route through a backend proxy before any App Store release. |
+| No error boundaries | Medium | Unhandled React render errors crash the entire app with a blank screen. | Add `ErrorBoundary` component at the root layout level. |
+| Auth0 token refresh not implemented | Medium | If the access token expires during a long session, the user is silently logged out on next launch. | Implement `refreshAsync` from expo-auth-session on token expiry. |
+| No analytics or crash reporting | Low | No visibility into production issues. | Integrate Sentry (`@sentry/react-native`) before a wider release. |
+| Notification tests absent | Low | `notification.service.ts` has no unit tests; its async expo API calls cannot be vitest-mocked easily. | Add tests with `vi.mock('expo-notifications')`. |
 
 ---
 
 ## 13. Future Evolution Path
 
-### Phase-by-Phase Changes
+### Phase-by-Phase Changes (Shipped)
 
 | Phase | New Files | Modified Files |
 |-------|-----------|----------------|
-| **5 — OCR** | `src/services/ocr.service.ts`, `src/services/ocr.service.test.ts` | `app/medicine/new.tsx` (add camera button + OCR flow) |
-| **6 — Inventory** | `src/services/inventory.service.ts`, `src/hooks/useInventory.ts` | `app/medicine/[id].tsx` (show inventory section), `app/(tabs)/dashboard.tsx` (low-stock warnings) |
-| **7 — Schedules** | `src/services/schedule.service.ts`, `src/hooks/useSchedule.ts`, `app/medicine/schedule.tsx` (new screen) | `app/medicine/[id].tsx` (show schedule section) |
-| **8 — Intake** | `src/services/intake.service.ts`, `src/hooks/useIntakeLogs.ts`, `src/hooks/useAdherence.ts` | `app/(tabs)/dashboard.tsx` (major rework — daily dose tracker with Take/Skip buttons) |
-| **9 — Notifications** | `src/services/notification.service.ts` | `app/_layout.tsx` (request notification permission), ties into schedules and intake |
+| **5 — OCR** | `src/services/ocr.service.ts` | `app/medicine/new.tsx` (camera button, scan flow, loading overlay, error handling) |
+| **6 — Inventory** | `src/services/inventory.service.ts`, `src/hooks/useInventory.ts` | `app/medicine/[id].tsx` (inline inventory section), `app/(tabs)/medicines.tsx` (low-stock badges), `app/(tabs)/dashboard.tsx` (low-stock alert card), `src/components/MedicineCard.tsx` (amber badge) |
+| **7 — Schedules** | `src/services/schedule.service.ts`, `src/hooks/useSchedule.ts` | `app/medicine/[id].tsx` (inline schedule section with 5 frequency options including custom) |
+| **8 — Intake** | `src/services/intake.service.ts` | `app/(tabs)/dashboard.tsx` (full rewrite — daily dose tracker, morning/afternoon/evening groups, Take/Skip buttons, adherence card), `app/medicine/[id].tsx` (7-day adherence row) |
+| **9 — Notifications** | `src/services/notification.service.ts` | `app/_layout.tsx` (permission request on launch), `app/(tabs)/dashboard.tsx` (cancel on take, low-stock check), `app/(tabs)/settings.tsx` (permission status row) |
 
 ### Beyond v1.0 (Speculative)
 
@@ -587,47 +591,56 @@ All variables live in `.env` (gitignored). No secrets in the repository.
 ```
 medicine-tracker/
 ├── app/
-│   ├── _layout.tsx              # Root layout — migrations + AuthProvider
+│   ├── _layout.tsx              # Root layout — migrations, permission request, AuthProvider
 │   ├── index.tsx                # Smart redirect (auth check)
 │   ├── (auth)/
 │   │   ├── _layout.tsx          # Auth route group layout
 │   │   └── sign-in.tsx          # Auth0 login screen
 │   ├── (tabs)/
-│   │   ├── _layout.tsx          # Bottom tab bar (3 tabs)
-│   │   ├── dashboard.tsx        # Today view
-│   │   ├── medicines.tsx        # Medicine list
-│   │   └── settings.tsx         # Account & logout
+│   │   ├── _layout.tsx          # Bottom tab bar (Today / Medicines / Settings)
+│   │   ├── dashboard.tsx        # Daily dose tracker, adherence stats, low-stock alerts
+│   │   ├── medicines.tsx        # Medicine list with inventory badges
+│   │   └── settings.tsx         # Account info, notification status, sign-out
 │   └── medicine/
-│       ├── new.tsx              # Add medicine form
-│       ├── [id].tsx             # Medicine detail view
-│       └── [id]-edit.tsx        # Edit medicine form
+│       ├── new.tsx              # Add medicine — manual entry or OCR camera scan
+│       ├── [id].tsx             # Detail: inventory, schedule, adherence, edit/archive
+│       └── [id]-edit.tsx        # Edit medicine form (pre-filled)
 ├── src/
 │   ├── auth/
-│   │   ├── auth0-config.ts      # Auth0 constants
-│   │   └── AuthContext.tsx       # OIDC+PKCE provider + useAuth() hook
+│   │   ├── auth0-config.ts      # Auth0 constants (domain, client ID, scopes)
+│   │   └── AuthContext.tsx      # OIDC+PKCE provider, session restore, useAuth() hook
 │   ├── components/
-│   │   └── MedicineCard.tsx      # Reusable medicine card
+│   │   └── MedicineCard.tsx     # Reusable card — name, dosage, low-stock badge
 │   ├── db/
-│   │   ├── client.ts            # SQLite connection
-│   │   ├── schema.ts            # TypeScript interfaces for all tables
-│   │   └── migrations.ts        # CREATE TABLE + indexes
+│   │   ├── client.ts            # Opens SQLite connection (singleton)
+│   │   ├── schema.ts            # TypeScript interfaces for all 5 tables
+│   │   └── migrations.ts        # Idempotent CREATE TABLE statements + indexes
 │   ├── hooks/
-│   │   └── useMedicines.ts      # Fetch medicines + loading + refetch
+│   │   ├── useMedicines.ts      # Medicines list state + add/archive mutations
+│   │   ├── useInventory.ts      # Inventory state + upsert/refill mutations
+│   │   └── useSchedule.ts       # Schedule state + upsert/deactivate mutations
 │   └── services/
-│       ├── medicine.service.ts       # Medicine CRUD
-│       └── medicine.service.test.ts  # 15 unit tests
+│       ├── medicine.service.ts       # Medicine CRUD operations
+│       ├── medicine.service.test.ts  # 15 unit tests
+│       ├── ocr.service.ts            # Claude API prescription scanning
+│       ├── inventory.service.ts      # Stock tracking + low-stock detection
+│       ├── schedule.service.ts       # Dosage schedule management
+│       ├── intake.service.ts         # Dose logging + adherence calculation
+│       └── notification.service.ts   # Local push notification scheduling/cancellation
 ├── docs/
 │   ├── architecture.md          # This document
-│   ├── architecture-diagram.mmd # Mermaid diagram source
-│   └── spec.md                  # Product specification
-├── assets/                      # App icons, splash screen
-├── .env                         # Secrets (gitignored)
-├── app.json                     # Expo configuration
-├── package.json                 # Dependencies & scripts
-├── tsconfig.json                # TypeScript config
-├── tailwind.config.js           # NativeWind / Tailwind config
-├── vitest.config.ts             # Test runner config
-├── babel.config.js              # Babel config
-├── CLAUDE.md                    # AI assistant instructions
+│   ├── architecture-diagram.mmd # Mermaid diagram source (all diagrams)
+│   ├── spec.md                  # Product specification
+│   └── user-guide.md            # Customer-facing how-to guide
+├── assets/                      # App icons, splash screen images
+├── .env                         # Secrets — gitignored (see .env.example)
+├── .env.example                 # Template showing required variable names (no values)
+├── app.json                     # Expo app configuration (scheme, plugins, permissions)
+├── package.json                 # Dependencies and npm scripts
+├── tsconfig.json                # TypeScript strict mode config
+├── tailwind.config.js           # NativeWind / Tailwind configuration
+├── vitest.config.ts             # Vitest test runner config
+├── babel.config.js              # Babel transpilation config
+├── CLAUDE.md                    # AI assistant coding instructions
 └── .gitignore
 ```

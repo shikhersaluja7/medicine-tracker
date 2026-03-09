@@ -1,142 +1,141 @@
 %% ============================================================
-%% Medicine Tracker — Architecture Diagrams
-%% Source of truth for all Mermaid diagrams in architecture.md
+%% Medicine Tracker — Architecture Diagrams  (v2.0 — all 9 phases shipped)
+%% Source of truth for all Mermaid diagrams referenced in architecture.md
+%%
+%% To render: paste any section into https://mermaid.live
+%% Each diagram is separated by a blank line and a header comment.
 %% ============================================================
 
 
 %% -----------------------------------------------------------
 %% 1. SYSTEM CONTEXT (C4 Level 1)
-%% Shows the app's external boundaries and integrations.
+%% Shows the app's external boundaries and all integrations.
 %% -----------------------------------------------------------
-%% Render separately — each diagram starts with its own keyword.
 
-%% graph TD
-%%   User([fa:fa-user User / Family Member])
-%%   App[Medicine Tracker Mobile App<br/>Expo + React Native]
-%%   Auth0[Auth0<br/>Identity Provider<br/>OIDC + PKCE]
-%%   Claude[Anthropic Claude API<br/>claude-haiku-4-5<br/>Prescription OCR]
-%%   SQLite[(SQLite<br/>On-Device Database)]
-%%   SecureStore[(SecureStore<br/>Encrypted Keychain)]
-%%   Notif[expo-notifications<br/>Local Push Reminders]
-%%
-%%   User -->|uses| App
-%%   App -->|authenticates via| Auth0
-%%   App -->|sends prescription image| Claude
-%%   App -->|reads/writes data| SQLite
-%%   App -->|stores tokens| SecureStore
-%%   App -->|schedules reminders| Notif
+graph TD
+  User([User / Family Member])
+  App[Medicine Tracker\nExpo + React Native]
+  Auth0[Auth0\nIdentity Provider\nOIDC + PKCE]
+  Claude[Anthropic Claude API\nclaude-haiku-4-5\nPrescription OCR]
+  SQLite[(SQLite\nOn-Device Database\n5 tables)]
+  SecureStore[(SecureStore\nEncrypted Keychain\niOS + Android)]
+  Notif[expo-notifications\nLocal Push Reminders\ndose + low-stock]
+
+  User -->|opens app| App
+  App -->|authenticates via OIDC| Auth0
+  App -->|sends prescription image as base64| Claude
+  App -->|reads and writes all health data| SQLite
+  App -->|stores session tokens| SecureStore
+  App -->|schedules and cancels reminders| Notif
 
 
 %% -----------------------------------------------------------
 %% 2. LAYERED ARCHITECTURE
-%% Shows the four-layer dependency chain.
+%% Shows the four-layer dependency chain: Screen → Hook → Service → DB.
 %% -----------------------------------------------------------
 
-%% graph TB
-%%   subgraph Screen Layer
-%%     S1[app/_layout.tsx]
-%%     S2[app/index.tsx]
-%%     S3[app/(auth)/sign-in.tsx]
-%%     S4[app/(tabs)/dashboard.tsx]
-%%     S5[app/(tabs)/medicines.tsx]
-%%     S6[app/(tabs)/settings.tsx]
-%%     S7[app/medicine/new.tsx]
-%%     S8[app/medicine/id.tsx]
-%%     S9[app/medicine/id-edit.tsx]
-%%   end
-%%
-%%   subgraph Hook Layer
-%%     H1[useMedicines]
-%%     H2[useSchedule — planned]
-%%     H3[useInventory — planned]
-%%   end
-%%
-%%   subgraph Service Layer
-%%     SV1[medicine.service]
-%%     SV2[schedule.service — planned]
-%%     SV3[intake.service — planned]
-%%     SV4[inventory.service — planned]
-%%     SV5[notification.service — planned]
-%%     SV6[ocr.service — planned]
-%%   end
-%%
-%%   subgraph Database Layer
-%%     DB1[(client.ts — SQLite connection)]
-%%     DB2[schema.ts — TypeScript interfaces]
-%%     DB3[migrations.ts — DDL statements]
-%%   end
-%%
-%%   Screen Layer --> Hook Layer
-%%   Hook Layer --> Service Layer
-%%   Service Layer --> Database Layer
+graph TB
+  subgraph Screens["Screen Layer — app/**/*.tsx"]
+    S1[dashboard.tsx\ndose tracking + adherence]
+    S2[medicines.tsx\nmedicine list]
+    S3[medicine/new.tsx\nadd + OCR scan]
+    S4[medicine/id.tsx\ndetail + schedule + inventory]
+    S5[settings.tsx\naccount + notifications]
+  end
+
+  subgraph Hooks["Hook Layer — src/hooks/"]
+    H1[useMedicines\nlist + mutations]
+    H2[useInventory\nstock + refill]
+    H3[useSchedule\ntimes + frequency]
+  end
+
+  subgraph Services["Service Layer — src/services/"]
+    SV1[medicine.service\nCRUD]
+    SV2[ocr.service\nClaude API]
+    SV3[inventory.service\nstock tracking]
+    SV4[schedule.service\ndosage schedules]
+    SV5[intake.service\ndose logging + adherence]
+    SV6[notification.service\nschedule + cancel alerts]
+  end
+
+  subgraph DB["Database Layer — src/db/"]
+    DB1[client.ts\nSQLite connection]
+    DB2[schema.ts\nTypeScript interfaces]
+    DB3[migrations.ts\nCREATE TABLE statements]
+  end
+
+  Screens --> Hooks
+  Screens --> Services
+  Hooks --> Services
+  Services --> DB
 
 
 %% -----------------------------------------------------------
 %% 3. ENTITY-RELATIONSHIP DIAGRAM
-%% All five database tables with relationships.
+%% All five database tables with column types and relationships.
 %% -----------------------------------------------------------
 
-%% erDiagram
-%%   medicines {
-%%     TEXT id PK
-%%     TEXT user_id
-%%     TEXT name
-%%     TEXT dosage
-%%     TEXT instructions
-%%     TEXT doctor
-%%     INTEGER is_active
-%%     TEXT created_at
-%%     TEXT updated_at
-%%   }
-%%
-%%   schedules {
-%%     TEXT id PK
-%%     TEXT medicine_id FK
-%%     TEXT user_id
-%%     TEXT frequency
-%%     TEXT times_of_day
-%%     TEXT days_of_week
-%%     INTEGER is_active
-%%     TEXT created_at
-%%     TEXT updated_at
-%%   }
-%%
-%%   intake_logs {
-%%     TEXT id PK
-%%     TEXT medicine_id FK
-%%     TEXT user_id
-%%     TEXT scheduled_at
-%%     TEXT taken_at
-%%     TEXT status
-%%     TEXT notes
-%%     TEXT created_at
-%%   }
-%%
-%%   inventory {
-%%     TEXT id PK
-%%     TEXT medicine_id FK
-%%     TEXT user_id
-%%     REAL quantity_on_hand
-%%     TEXT unit
-%%     REAL low_stock_threshold
-%%     TEXT last_refill_date
-%%     TEXT updated_at
-%%   }
-%%
-%%   notification_log {
-%%     TEXT id PK
-%%     TEXT user_id
-%%     TEXT medicine_id
-%%     TEXT notification_id
-%%     TEXT type
-%%     TEXT scheduled_for
-%%     TEXT created_at
-%%   }
-%%
-%%   medicines ||--o{ schedules : "has many"
-%%   medicines ||--o{ intake_logs : "has many"
-%%   medicines ||--o| inventory : "has one"
-%%   medicines ||--o{ notification_log : "has many"
+erDiagram
+  medicines {
+    TEXT id PK
+    TEXT user_id
+    TEXT name
+    TEXT dosage
+    TEXT instructions
+    TEXT doctor
+    INTEGER is_active
+    TEXT created_at
+    TEXT updated_at
+  }
+
+  schedules {
+    TEXT id PK
+    TEXT medicine_id FK
+    TEXT user_id
+    TEXT frequency
+    TEXT times_of_day
+    TEXT days_of_week
+    INTEGER is_active
+    TEXT created_at
+    TEXT updated_at
+  }
+
+  intake_logs {
+    TEXT id PK
+    TEXT medicine_id FK
+    TEXT user_id
+    TEXT scheduled_at
+    TEXT taken_at
+    TEXT status
+    TEXT notes
+    TEXT created_at
+  }
+
+  inventory {
+    TEXT id PK
+    TEXT medicine_id FK
+    TEXT user_id
+    REAL quantity_on_hand
+    TEXT unit
+    REAL low_stock_threshold
+    TEXT last_refill_date
+    TEXT updated_at
+  }
+
+  notification_log {
+    TEXT id PK
+    TEXT user_id
+    TEXT medicine_id
+    TEXT notification_id
+    TEXT type
+    TEXT scheduled_for
+    TEXT created_at
+  }
+
+  medicines ||--o{ schedules : "has many"
+  medicines ||--o{ intake_logs : "has many"
+  medicines ||--o| inventory : "has one"
+  medicines ||--o{ notification_log : "has many"
 
 
 %% -----------------------------------------------------------
@@ -144,58 +143,90 @@
 %% Full OIDC + PKCE login flow from app open to dashboard.
 %% -----------------------------------------------------------
 
-%% sequenceDiagram
-%%   actor User
-%%   participant App as Medicine Tracker
-%%   participant SS as SecureStore
-%%   participant Auth0 as Auth0 (OIDC)
-%%
-%%   Note over App: App Launch
-%%   App->>SS: Check for stored session
-%%   alt Session found
-%%     SS-->>App: Return stored AuthUser JSON
-%%     App->>App: setUser(restored) → navigate to dashboard
-%%   else No session
-%%     App->>App: Show sign-in screen
-%%     User->>App: Tap "Sign In"
-%%     App->>App: Generate PKCE code_verifier + code_challenge
-%%     App->>Auth0: Open Universal Login (browser)<br/>with code_challenge
-%%     Auth0->>User: Show login form
-%%     User->>Auth0: Enter credentials
-%%     Auth0-->>App: Redirect with authorization code
-%%     App->>Auth0: Exchange code + code_verifier for tokens
-%%     Auth0-->>App: Return ID token + access token
-%%     App->>App: Decode JWT payload → extract sub, email, name
-%%     App->>SS: Store AuthUser JSON + access token
-%%     App->>App: setUser(decoded) → navigate to dashboard
-%%   end
+sequenceDiagram
+  actor User
+  participant App as Medicine Tracker
+  participant SS as SecureStore
+  participant Auth0 as Auth0 OIDC
+
+  Note over App: App Launch
+  App->>SS: Check for stored AuthUser JSON
+  alt Session found
+    SS-->>App: Return AuthUser (sub, email, name)
+    App->>App: setUser — navigate to dashboard
+  else No session
+    App->>App: Show sign-in screen
+    User->>App: Tap Sign In
+    App->>App: Generate PKCE code_verifier + code_challenge
+    App->>Auth0: Open Universal Login with code_challenge
+    Auth0->>User: Show login form
+    User->>Auth0: Enter credentials or use Google
+    Auth0-->>App: Redirect with authorization code
+    App->>Auth0: Exchange code + code_verifier for tokens
+    Auth0-->>App: Return ID token + access token
+    App->>App: Decode JWT payload — extract sub, email, name
+    App->>SS: Store AuthUser JSON + access token
+    App->>App: setUser — navigate to dashboard
+  end
 
 
 %% -----------------------------------------------------------
 %% 5. NAVIGATION ROUTE MAP
-%% All screens and transitions.
+%% All screens and valid transitions between them.
 %% -----------------------------------------------------------
 
-%% graph TD
-%%   ROOT["/ (index.tsx)<br/>Smart Redirect"]
-%%   SIGNIN["/(auth)/sign-in<br/>Auth0 Login"]
-%%   DASH["/(tabs)/dashboard<br/>Today View"]
-%%   MEDS["/(tabs)/medicines<br/>Medicine List"]
-%%   SETTINGS["/(tabs)/settings<br/>Account & Logout"]
-%%   NEW["/medicine/new<br/>Add Medicine Form"]
-%%   DETAIL["/medicine/[id]<br/>Medicine Detail"]
-%%   EDIT["/medicine/[id]-edit<br/>Edit Medicine"]
-%%
-%%   ROOT -->|authenticated| DASH
-%%   ROOT -->|not authenticated| SIGNIN
-%%   SIGNIN -->|login success| DASH
-%%   DASH <-->|tab switch| MEDS
-%%   DASH <-->|tab switch| SETTINGS
-%%   MEDS <-->|tab switch| SETTINGS
-%%   MEDS -->|tap +| NEW
-%%   MEDS -->|tap card| DETAIL
-%%   NEW -->|save / back| MEDS
-%%   DETAIL -->|tap edit| EDIT
-%%   DETAIL -->|archive / back| MEDS
-%%   EDIT -->|save / back| DETAIL
-%%   SETTINGS -->|logout| SIGNIN
+graph TD
+  ROOT["/ index.tsx\nSmart Redirect"]
+  SIGNIN["/(auth)/sign-in\nAuth0 Login"]
+  DASH["/(tabs)/dashboard\nToday's Doses"]
+  MEDS["/(tabs)/medicines\nMedicine List"]
+  SETTINGS["/(tabs)/settings\nAccount + Notifications"]
+  NEW["/medicine/new\nAdd Medicine + OCR Scan"]
+  DETAIL["/medicine/id\nDetail + Schedule + Inventory"]
+  EDIT["/medicine/id-edit\nEdit Medicine"]
+
+  ROOT -->|authenticated| DASH
+  ROOT -->|not authenticated| SIGNIN
+  SIGNIN -->|login success| DASH
+  DASH <-->|tab switch| MEDS
+  DASH <-->|tab switch| SETTINGS
+  MEDS <-->|tab switch| SETTINGS
+  MEDS -->|tap plus| NEW
+  MEDS -->|tap card| DETAIL
+  DASH -->|tap low-stock item| DETAIL
+  NEW -->|save or back| MEDS
+  DETAIL -->|tap edit| EDIT
+  DETAIL -->|archive or back| MEDS
+  EDIT -->|save or back| DETAIL
+  SETTINGS -->|logout| SIGNIN
+
+
+%% -----------------------------------------------------------
+%% 6. DOSE LIFECYCLE
+%% Shows how a single dose moves from schedule → log → notification.
+%% -----------------------------------------------------------
+
+stateDiagram-v2
+  [*] --> Scheduled : generateTodaysDoses() runs on app focus
+  Scheduled --> Pending : intake_log row created with status=pending
+  Pending --> Taken : user taps Take\nmarkTaken() called\ninventory decremented\nnotification cancelled
+  Pending --> Skipped : user taps Skip\nmarkSkipped() called\noptional note saved
+  Taken --> [*] : counts toward adherence numerator
+  Skipped --> [*] : counts toward adherence denominator only
+
+
+%% -----------------------------------------------------------
+%% 7. NOTIFICATION LIFECYCLE
+%% Shows how notifications are scheduled, delivered, and cancelled.
+%% -----------------------------------------------------------
+
+graph LR
+  AppLaunch[App Launch] --> ReqPerm[Request Permission\nrequestPermissionsAsync]
+  ReqPerm -->|granted| Reschedule[rescheduleAllNotifications\nwipes old + schedules 7-day window]
+  ReqPerm -->|denied| Degrade[Graceful degradation\nin-app dose list still works]
+  Reschedule --> DB[(notification_log\nstores expo notification IDs)]
+  DB -->|at scheduled time| FireNotif[Notification fires\non device]
+  FireNotif -->|user taps Take| Cancel[cancelDoseNotification\nremove from log]
+  TakeDose[markTaken] --> LowStockCheck[checkAndNotifyLowStock]
+  LowStockCheck -->|quantity below threshold| LowAlert[low_stock notification\nfires in 2 seconds]
+  LowStockCheck -->|stock OK| NoOp[no-op]

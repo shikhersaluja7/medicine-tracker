@@ -28,6 +28,7 @@ import { db } from "@/db/client";
 import { getMedicineById, archiveMedicine } from "@/services/medicine.service";
 import { useInventory } from "@/hooks/useInventory";
 import { useSchedule } from "@/hooks/useSchedule";
+import { getAdherenceStats, type AdherenceStats } from "@/services/intake.service";
 import { useAuth } from "@/auth/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import type { Medicine, Inventory, Schedule } from "@/db/schema";
@@ -143,6 +144,10 @@ export default function MedicineDetailScreen() {
   const [medicine, setMedicine] = useState<Medicine | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // adherence: the 7-day taken/total/percentage stats for this specific medicine.
+  // null until loaded (avoids showing "0%" before data arrives).
+  const [adherence, setAdherence] = useState<AdherenceStats | null>(null);
+
   // useInventory provides inventory state and mutation functions.
   const {
     inventory,
@@ -159,11 +164,13 @@ export default function MedicineDetailScreen() {
     deactivate: deactivateSchedule,
   } = useSchedule(id ?? "");
 
-  // Fetch the medicine details from the database when the screen loads.
+  // Fetch the medicine details and adherence stats when the screen loads.
   useEffect(() => {
     if (!user || !id) return;
     const found = getMedicineById(db, id, user.sub);
     setMedicine(found);
+    // Load adherence stats alongside the medicine — both are fast SQLite reads.
+    setAdherence(getAdherenceStats(db, id, user.sub, 7));
     setIsLoading(false);
   }, [id, user]);
 
@@ -258,6 +265,49 @@ export default function MedicineDetailScreen() {
             label="Added on"
             value={new Date(medicine.created_at).toLocaleDateString()}
           />
+
+          {/* 7-day adherence — only shown once there is at least one resolved dose.
+              "Resolved" means taken or skipped — pending doses aren't counted yet.
+              Like a report card that only appears after the first test is graded. */}
+          {adherence && adherence.total > 0 && (
+            <View className="flex-row items-start gap-3 py-3 border-t border-gray-50">
+              <Ionicons
+                name="stats-chart-outline"
+                size={18}
+                color="#9CA3AF"
+                style={{ marginTop: 1 }}
+              />
+              <View className="flex-1">
+                <Text className="text-xs text-gray-400 mb-0.5">7-day adherence</Text>
+                <View className="flex-row items-center gap-2">
+                  <Text className="text-sm text-gray-700">
+                    {adherence.taken} of {adherence.total} doses taken
+                  </Text>
+                  <View
+                    className={`rounded-full px-2 py-0.5 ${
+                      adherence.percentage >= 80
+                        ? "bg-green-100"
+                        : adherence.percentage >= 50
+                        ? "bg-amber-100"
+                        : "bg-red-100"
+                    }`}
+                  >
+                    <Text
+                      className={`text-xs font-semibold ${
+                        adherence.percentage >= 80
+                          ? "text-green-700"
+                          : adherence.percentage >= 50
+                          ? "text-amber-700"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {adherence.percentage}%
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* ── Inventory section ── */}

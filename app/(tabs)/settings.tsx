@@ -2,14 +2,38 @@
 //
 // This screen shows:
 //   - The logged-in user's name, email, and Auth0 user ID
+//   - Notification permission status with a link to device settings if denied
 //   - A sign-out button that clears the session and returns to login
 
-import { View, Text, TouchableOpacity, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Alert, Linking } from "react-native";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/auth/AuthContext";
+import { getPermissionStatus } from "@/services/notification.service";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function SettingsScreen() {
   const { user, logout } = useAuth();
+
+  // notifStatus: the current notification permission ("granted", "denied", "undetermined").
+  // We check this each time the screen loads so it stays accurate after the user
+  // changes it in device Settings and returns to the app.
+  const [notifStatus, setNotifStatus] = useState<string>("undetermined");
+
+  // useEffect with [] runs once when the screen mounts — like checking the mailbox
+  // when you walk into the room, not on every step you take inside.
+  useEffect(() => {
+    getPermissionStatus()
+      .then(setNotifStatus)
+      .catch(console.error);
+  }, []);
+
+  // handleOpenSettings: takes the user to the device's system Settings app.
+  // On iOS this opens "Settings > Medicine Tracker > Notifications".
+  // On Android it opens the app notification settings page.
+  // Used when notifications are denied — we can't re-ask, only direct them to Settings.
+  function handleOpenSettings() {
+    Linking.openSettings().catch(console.error);
+  }
 
   // handleSignOut: asks for confirmation before logging out.
   // Alert.alert() shows a native dialog — looks like a system alert on iOS/Android.
@@ -93,6 +117,52 @@ export default function SettingsScreen() {
             <Text className="text-sm text-gray-600">Data storage</Text>
             <Text className="text-sm text-gray-400">On this device</Text>
           </View>
+        </View>
+
+        {/* ── Notifications card ── */}
+        {/* Shows whether dose reminders are enabled on this device.
+            If denied, a button guides the user to the system Settings app. */}
+        <View className="bg-white rounded-2xl p-5 border border-gray-100">
+          <Text className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+            Notifications
+          </Text>
+
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center gap-2">
+              {/* Icon changes colour to signal permission state at a glance */}
+              <Ionicons
+                name="notifications-outline"
+                size={18}
+                color={notifStatus === "granted" ? "#22C55E" : "#EF4444"}
+              />
+              <Text className="text-sm text-gray-700">Dose reminders</Text>
+            </View>
+
+            {/* Status badge — green tick if granted, amber/red label if not */}
+            {notifStatus === "granted" ? (
+              <View className="flex-row items-center gap-1">
+                <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                <Text className="text-sm text-green-600 font-medium">On</Text>
+              </View>
+            ) : (
+              // Tapping "Enable" opens the device Settings app so the user can grant permission.
+              // We can't show the permission dialog again after it's been denied —
+              // sending them to Settings is the only option.
+              <TouchableOpacity
+                onPress={handleOpenSettings}
+                className="bg-blue-600 rounded-lg px-3 py-1"
+              >
+                <Text className="text-white text-xs font-semibold">Enable</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Explanatory note when notifications are off */}
+          {notifStatus !== "granted" && (
+            <Text className="text-xs text-gray-400 mt-3 leading-4">
+              Turn on notifications in device Settings to receive dose reminders at your scheduled times.
+            </Text>
+          )}
         </View>
 
         {/* ── Sign-out button ── */}

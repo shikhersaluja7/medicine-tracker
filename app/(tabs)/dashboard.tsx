@@ -19,7 +19,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useAuth } from "@/auth/AuthContext";
 import { db } from "@/db/client";
 import { getLowStockInventories, type LowStockItem } from "@/services/inventory.service";
@@ -32,6 +32,11 @@ import {
   type TodaysDose,
   type AdherenceStats,
 } from "@/services/intake.service";
+import {
+  rescheduleAllNotifications,
+  cancelDoseNotification,
+  checkAndNotifyLowStock,
+} from "@/services/notification.service";
 import { Ionicons } from "@expo/vector-icons";
 
 // ─── Time helpers ─────────────────────────────────────────────────────────────
@@ -79,6 +84,11 @@ export default function DashboardScreen() {
   // isLoading: true on the very first load before data arrives.
   const [isLoading, setIsLoading] = useState(true);
 
+  // hasRescheduled: tracks whether we've already re-scheduled notifications this app session.
+  // Using a ref (not state) so changing it doesn't trigger a re-render.
+  // Like a sticky note that says "already set all the alarms today — don't set them again."
+  const hasRescheduled = useRef(false);
+
   // skippingLogId: the logId of the dose currently being skipped (shows inline form).
   // null means no skip is in progress.
   const [skippingLogId, setSkippingLogId] = useState<string | null>(null);
@@ -98,6 +108,14 @@ export default function DashboardScreen() {
     setAdherence(getOverallAdherence(db, user.sub, 7));
     setLowStockItems(getLowStockInventories(db, user.sub));
     setIsLoading(false);
+
+    // Step 3: reschedule notifications once per app session.
+    // We skip this on subsequent focus calls (e.g., switching back from another tab).
+    // rescheduleAllNotifications is async, so we fire-and-forget to keep refreshData sync.
+    if (!hasRescheduled.current) {
+      hasRescheduled.current = true;
+      rescheduleAllNotifications(db, user.sub).catch(console.error);
+    }
   }, [user]);
 
   // Run refreshData every time this tab becomes visible.
@@ -108,7 +126,20 @@ export default function DashboardScreen() {
   // ── Take handler ──────────────────────────────────────────────────────────
   function handleTake(dose: TodaysDose) {
     if (!user) return;
+    // Record the dose as taken and decrement inventory in SQLite.
     markTaken(db, dose.logId, user.sub, dose.medicineId);
+
+    // Cancel the scheduled reminder — no need to buzz if they already took it.
+    cancelDoseNotification(db, user.sub, dose.medicineId, dose.scheduledAt).catch(
+      console.error
+    );
+
+    // Check if taking this dose pushed the inventory below the low-stock threshold.
+    // If so, fire a one-time low-stock alert. If stock is fine, this is a no-op.
+    checkAndNotifyLowStock(db, user.sub, dose.medicineId, dose.medicineName).catch(
+      console.error
+    );
+
     refreshData();
   }
 
@@ -352,13 +383,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* ── Coming soon: Push Notifications ── */}
-        <ComingSoonCard
-          icon="notifications-outline"
-          title="Smart Reminders"
-          description="Push notifications at your scheduled dose times — coming in Phase 9"
-        />
-
       </ScrollView>
     </View>
   );
@@ -520,23 +544,3 @@ function StatusDot({ status }: { status: TodaysDose["status"] }) {
   );
 }
 
-// ─── ComingSoonCard ──────────────────────────────────────────────────────────
-interface ComingSoonCardProps {
-  icon: string;
-  title: string;
-  description: string;
-}
-
-function ComingSoonCard({ icon, title, description }: ComingSoonCardProps) {
-  return (
-    <View className="bg-white rounded-2xl p-5 border border-gray-100 mb-4 flex-row items-start gap-4 opacity-60">
-      <View className="w-10 h-10 rounded-xl bg-gray-100 items-center justify-center">
-        <Ionicons name={icon as never} size={20} color="#9CA3AF" />
-      </View>
-      <View className="flex-1">
-        <Text className="text-sm font-semibold text-gray-600">{title}</Text>
-        <Text className="text-xs text-gray-400 mt-0.5 leading-4">{description}</Text>
-      </View>
-    </View>
-  );
-}

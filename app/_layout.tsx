@@ -13,9 +13,11 @@
 //   - Stack renders the current screen inside the AuthProvider
 
 import { Stack } from "expo-router";
+import { useEffect } from "react";
 import { db } from "@/db/client";
 import { runMigrations } from "@/db/migrations";
 import { AuthProvider } from "@/auth/AuthContext";
+import { requestPermission } from "@/services/notification.service";
 
 // ─── Run database migrations at module load time ───────────────────────────
 // This code runs ONCE per app launch, synchronously, before any component renders.
@@ -28,6 +30,20 @@ import { AuthProvider } from "@/auth/AuthContext";
 runMigrations(db);
 
 export default function RootLayout() {
+  // ─── Request notification permission on launch ──────────────────────────
+  // useEffect with [] runs ONCE after the first render — perfect for one-time setup.
+  //
+  // Why request here instead of on a specific screen?
+  // Asking early gives the user context: they just opened a medicine reminder app,
+  // so notifications make obvious sense. If they deny, everything still works —
+  // the app just won't buzz them at dose times (graceful degradation).
+  //
+  // If permission was already granted (e.g., second launch), requestPermission()
+  // is a safe no-op — it just checks and returns true without showing a dialog.
+  useEffect(() => {
+    requestPermission().catch(console.error);
+  }, []);
+
   return (
     // AuthProvider wraps everything so any screen can call useAuth()
     // to check if the user is logged in, get their info, or log them out.

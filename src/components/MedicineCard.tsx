@@ -10,19 +10,34 @@
 // The parent screen (medicines.tsx) is responsible for fetching and passing data.
 //
 // Usage:
-//   <MedicineCard medicine={medicine} onPress={() => router.push(`/medicine/${medicine.id}`)} />
+//   <MedicineCard
+//     medicine={medicine}
+//     inventory={inventory}  // optional — shows a low-stock badge if running low
+//     onPress={() => router.push(`/medicine/${medicine.id}`)}
+//   />
 
 import { View, Text, TouchableOpacity } from "react-native";
-import type { Medicine } from "@/db/schema";
+import { Ionicons } from "@expo/vector-icons";
+import type { Medicine, Inventory } from "@/db/schema";
 
 interface MedicineCardProps {
   // The medicine object from the database to display
   medicine: Medicine;
+  // The inventory row for this medicine — optional because not all medicines
+  // have inventory set up yet. If provided and running low, shows a warning badge.
+  inventory?: Inventory | null;
   // Called when the user taps the card — usually navigates to the detail screen
   onPress: () => void;
 }
 
-export function MedicineCard({ medicine, onPress }: MedicineCardProps) {
+export function MedicineCard({ medicine, inventory, onPress }: MedicineCardProps) {
+  // isLowStock: true when quantity is at or below the warning threshold.
+  // Like a fuel gauge warning light — it turns on before you actually run out.
+  // e.g., quantity_on_hand = 5, low_stock_threshold = 7 → isLowStock = true
+  const isLowStock =
+    inventory != null &&
+    inventory.quantity_on_hand <= inventory.low_stock_threshold;
+
   return (
     // TouchableOpacity makes the whole card tappable and gives a press animation.
     // active:opacity-70 dims the card slightly when pressed (NativeWind active state).
@@ -44,21 +59,35 @@ export function MedicineCard({ medicine, onPress }: MedicineCardProps) {
       </View>
 
       {/* ── Instructions (shown only if they exist) ── */}
-      {/* The && operator renders the View only when instructions is not null/empty */}
+      {/* The && operator renders the Text only when instructions is not null/empty */}
       {!!medicine.instructions && (
         <Text className="text-sm text-gray-500 mt-1" numberOfLines={2}>
           {medicine.instructions}
         </Text>
       )}
 
-      {/* ── Bottom row: doctor name + chevron arrow ── */}
+      {/* ── Bottom row: doctor + low-stock badge + chevron ── */}
       <View className="flex-row items-center justify-between mt-2">
-        {medicine.doctor ? (
-          <Text className="text-xs text-gray-400">Dr. {medicine.doctor}</Text>
-        ) : (
-          // Show an empty spacer so the chevron stays right-aligned even with no doctor
-          <View />
-        )}
+        <View className="flex-row items-center gap-2 flex-1">
+          {medicine.doctor ? (
+            <Text className="text-xs text-gray-400">Dr. {medicine.doctor}</Text>
+          ) : (
+            // Empty view keeps layout stable when there's no doctor name
+            <View />
+          )}
+
+          {/* Low-stock badge — amber warning shown when running low.
+              Like the fuel-light on a car dashboard: it catches your eye
+              before the problem becomes urgent. */}
+          {isLowStock && (
+            <View className="flex-row items-center gap-1 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+              <Ionicons name="warning-outline" size={11} color="#D97706" />
+              <Text className="text-xs font-medium text-amber-700">
+                Low stock
+              </Text>
+            </View>
+          )}
+        </View>
 
         {/* Right-pointing arrow indicates this card is tappable */}
         <Text className="text-gray-300 text-lg">›</Text>
